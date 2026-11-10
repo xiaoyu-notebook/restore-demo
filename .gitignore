@@ -1,0 +1,10 @@
+# 这个仓库永远只放假的
+# 真恢复码、真日记、真私信、真照片、任何密钥，都不许进这里。
+*.key
+*.pem
+id_*
+*recovery*code*
+inner-seal.seal
+inner-tools.seal
+out/
+node_modules/
