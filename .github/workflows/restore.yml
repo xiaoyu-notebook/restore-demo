@@ -1,0 +1,57 @@
+name: restore-demo
+
+# 目的：在一台从没碰过的机器上，验证「加密记忆包」能不能原原本本解回来。
+# 这里用的口令是测试口令，故意写在明文里（它不是真恢复码）。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  restore:
+    runs-on: windows-latest
+    steps:
+      - name: 取仓库
+        uses: actions/checkout@v4
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 还原二进制样本（仓库里存的是 base64 文本）
+        shell: pwsh
+        run: |
+          $b64 = (Get-Content demo/sample.seal.b64 | Where-Object { $_ -notmatch '^#' }) -join ''
+          $bytes = [Convert]::FromBase64String($b64)
+          [IO.File]::WriteAllBytes('demo/sample.seal', $bytes)
+          Write-Host "还原 $($bytes.Length) 字节"
+
+      - name: 解开样本包（TEST-ONLY 口令，不是真恢复码）
+        shell: pwsh
+        env:
+          # ⚠️ TEST-ONLY：这是演示用的假口令，写在这里是故意的。真恢复码永不入库。
+          INNER_SEAL_PASS: 'TEST-ONLY-demo-passphrase-not-a-real-recovery-code'
+        run: |
+          node sealpack.mjs open demo/sample.seal --dest out
+          if ($LASTEXITCODE -ne 0) { throw "解包失败（exit=$LASTEXITCODE）" }
+
+      - name: 核对解出来的文件
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem out -Recurse -File
+          Write-Host "解出文件数: $($files.Count)"
+          $files | ForEach-Object { Write-Host ("  {0}  {1} B" -f $_.Name, $_.Length) }
+
+          $man = Get-Content out/_MANIFEST.json -Raw | ConvertFrom-Json
+          Write-Host "清单记录: $($man.files.Count) 个文件"
+          if ($files.Count -ne ($man.files.Count + 1)) { throw "文件数与清单不符" }
+
+          foreach ($m in $man.files) {
+            $p = Join-Path 'out' $m.rel
+            if (-not (Test-Path $p)) { throw "缺文件: $($m.rel)" }
+            $h = (Get-FileHash $p -Algorithm SHA256).Hash.ToLower()
+            if ($h -ne $m.sha256) { throw "sha256 不符: $($m.rel)" }
+          }
+          Write-Host "OK: $($man.files.Count) files restored byte-for-byte"
